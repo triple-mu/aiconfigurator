@@ -69,8 +69,9 @@ _common_disagg_locked: &common_disagg_locked
     advanced_tuning_config:
       prefill_latency_correction_scale: 1.1
       decode_latency_correction_scale: 1.08
-      prefill_max_batch_size: 16    # prefill batch 上限,aic 内部扫 1/2/4/8/16
-      decode_max_batch_size: 256    # decode 显存富裕(单点 estimate 显示 bs=128 用 90GB,还有 95GB 余量)
+      # 这两个上限**不要**设得太小,否则 disagg 会输给 agg(agg 是 aic 内部自由 sweep,没限制)
+      prefill_max_batch_size: 64    # prefill 很快就到 SOL,batch 不会真撑到 64,留余量即可
+      decode_max_batch_size: 2048   # GB200 单卡 KV 预算够装 4 万+ seq,2048 是稳健上限
 
 exp_disagg_pd44_short:
   <<: *common_disagg_locked

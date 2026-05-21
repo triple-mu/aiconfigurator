@@ -89,9 +89,9 @@ def main() -> int:
                 continue
             cluster_tps = data.get("tokens/s", 0) or 0
             per_gpu = data.get("tokens/s/gpu", 0) or 0
-            total_gpus = data.get("total_gpus") or data.get("gpus_used") or "?"
-            ttft = data.get("TTFT", "?")
-            tpot = data.get("TPOT", "?")
+            total_gpus = data.get("num_total_gpus") or data.get("total_gpus") or "?"
+            ttft = data.get("ttft", data.get("TTFT", "?"))
+            tpot = data.get("tpot", data.get("TPOT", "?"))
             print(
                 f"  {wl:<8} | {cfg_label:<22} | "
                 f"{_safe(cluster_tps, ',.1f'):>11} | "
@@ -123,21 +123,26 @@ def main() -> int:
             line += f"open/agg   = {r2:.2f}x"
         print(line)
 
-    # 打印 top-1 拓扑(只看 disagg locked 的 mid 点)
-    locked_mid = next((r["02 disagg locked"] for r in table if r["workload"] == "mid"), None)
-    if locked_mid:
-        print("\n  02 disagg locked / mid 点 top-1 的关键 server 参数:")
-        keys_of_interest = [
-            "(p)parallel", "(p)gpus/worker", "(p)bs", "(p)workers",
-            "(d)parallel", "(d)gpus/worker", "(d)bs", "(d)workers",
-            "moe_tp", "moe_ep",
-            "max_batch_size", "max_num_tokens",
-        ]
-        for k in keys_of_interest:
-            v = locked_mid.get(k)
-            if v is not None and not (isinstance(v, float) and pd.isna(v)):
-                print(f"    {k:<22} = {v}")
-        print(f"    [source file] {locked_mid['__file__']}")
+    # 打印 mid 点的 top-1 详情(agg + disagg locked + disagg open 各打一段)
+    mid_row = next((r for r in table if r["workload"] == "mid"), None)
+    if mid_row:
+        for cfg_dir, cfg_label in configs:
+            data = mid_row.get(cfg_label)
+            if not data:
+                continue
+            print(f"\n  {cfg_label} / mid 点 top-1 关键参数:")
+            keys_of_interest = [
+                "num_total_gpus",
+                "concurrency", "request_rate",
+                "(p)parallel", "(p)bs", "(p)workers", "(p)seq/s/worker", "(p)memory",
+                "(d)parallel", "(d)bs", "(d)workers", "(d)seq/s/worker", "(d)memory",
+                "tokens/s", "tokens/s/gpu", "tokens/s/user", "ttft", "tpot",
+            ]
+            for k in keys_of_interest:
+                v = data.get(k)
+                if v is not None and not (isinstance(v, float) and pd.isna(v)):
+                    print(f"    {k:<22} = {v}")
+            print(f"    [source] {data['__file__']}")
 
     return 0
 
