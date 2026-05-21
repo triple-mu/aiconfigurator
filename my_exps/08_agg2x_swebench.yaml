@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: Apache-2.0
+# ============================================================================
+# GLM-4.5-Air @ GB200, 8-GPU AGG 2x replicas,SWEBench 真实分布
+# ----------------------------------------------------------------------------
+# 与 07_disagg_open_swebench.yaml 一一对应,同 workload 同 SLA,公平对照
+# ============================================================================
+
+exps:
+  - exp_agg2x_earlyTurn
+  - exp_agg2x_typicalTurn
+  - exp_agg2x_tailTurn
+
+_common_agg2x: &common_agg2x
+  mode: "patch"
+  serving_mode: "agg"
+  model_path: "zai-org/GLM-4.5-Air"
+  total_gpus: 8
+  system_name: "gb200"
+  backend_name: "sglang"
+  backend_version: "0.5.10"
+  database_mode: "HYBRID"
+  ttft: 1000.0
+  tpot: 100.0
+  enable_wideep: false
+  config:
+    nextn: 0
+    nextn_accept_rates: [0, 0, 0, 0, 0]
+    worker_config:
+      gemm_quant_mode: "bfloat16"
+      moe_quant_mode: "bfloat16"
+      kvcache_quant_mode: "bfloat16"
+      fmha_quant_mode: "bfloat16"
+      comm_quant_mode: "half"
+      num_gpu_per_worker: [4]
+      tp_list: [4]
+      pp_list: [1]
+      dp_list: [1]
+      moe_tp_list: [1, 2, 4]
+      moe_ep_list: [1, 2, 4]
+
+exp_agg2x_earlyTurn:
+  <<: *common_agg2x
+  isl: 5000
+  osl: 100
+  prefix: 3000
+
+exp_agg2x_typicalTurn:
+  <<: *common_agg2x
+  isl: 28000
+  osl: 100
+  prefix: 27000
+
+exp_agg2x_tailTurn:
+  <<: *common_agg2x
+  isl: 65000
+  osl: 500
+  prefix: 64000

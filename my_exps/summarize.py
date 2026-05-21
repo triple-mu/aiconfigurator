@@ -58,7 +58,8 @@ def _discover_workloads(results_root: str, configs: list) -> list[str]:
             if len(parts) >= 3:
                 seen.add(parts[-1])
     # 排序:已知顺序优先,其他按字母
-    known_order = ["short", "mid", "long", "prefillH", "decodeH", "bothH"]
+    known_order = ["short", "mid", "long", "prefillH", "decodeH", "bothH",
+                   "earlyTurn", "typicalTurn", "tailTurn"]
     return sorted(seen, key=lambda w: (known_order.index(w) if w in known_order else 999, w))
 
 
@@ -71,12 +72,14 @@ def main() -> int:
 
     # (results 子目录, 显示名, GPU 预算)—— 预算用于 agg 模式把 per-worker tps 还原成 cluster tps
     configs = [
-        ("agg_baseline",   "01 agg 4-GPU",                 4),
-        ("disagg_pd44",    "02 disagg locked",             8),
-        ("disagg_open",    "03 disagg open",               8),
-        ("agg_8gpu_2x",    "04 agg 2x replicas (8-GPU)",   8),
-        ("disagg_open_extra", "05 disagg open (extra wl)", 8),
-        ("agg2x_extra",       "06 agg 2x (extra wl)",      8),
+        ("agg_baseline",        "01 agg 4-GPU",                  4),
+        ("disagg_pd44",         "02 disagg locked",              8),
+        ("disagg_open",         "03 disagg open",                8),
+        ("agg_8gpu_2x",         "04 agg 2x replicas (8-GPU)",    8),
+        ("disagg_open_extra",   "05 disagg open (extra wl)",     8),
+        ("agg2x_extra",         "06 agg 2x (extra wl)",          8),
+        ("disagg_swebench",     "07 disagg open (SWEBench)",     8),
+        ("agg2x_swebench",      "08 agg 2x (SWEBench)",          8),
     ]
 
     if args.workloads:
