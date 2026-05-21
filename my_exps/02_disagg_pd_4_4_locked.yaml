@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: Apache-2.0
+# ============================================================================
+# GLM-4.5-Air @ GB200, 8-GPU DISAGG, 锁 1P(TP4) + 1D(TP4)
+# ----------------------------------------------------------------------------
+# 目的:在你限定的 P=4 D=4 拓扑下找最优 server 参数,验证 ≥ 2× 4-GPU agg
+# 锁:1 replica = 1 prefill worker (TP4) + 1 decode worker (TP4) = 8 GPUs
+# 扫:prefill 和 decode 各自的 moe_tp/moe_ep,以及 max batch size
+# 3 个工作负载点分别独立估算
+# ============================================================================
+
+exps:
+  - exp_disagg_pd44_short
+  - exp_disagg_pd44_mid
+  - exp_disagg_pd44_long
+
+_common_disagg_locked: &common_disagg_locked
+  mode: "patch"
+  serving_mode: "disagg"
+  model_path: "zai-org/GLM-4.5-Air"
+  total_gpus: 8
+  system_name: "gb200"
+  decode_system_name: "gb200"
+  backend_name: "sglang"
+  backend_version: "0.5.10"
+  database_mode: "HYBRID"
+  ttft: 1000.0
+  tpot: 60.0
+  enable_wideep: false
+  config:
+    nextn: 0
+    nextn_accept_rates: [0, 0, 0, 0, 0]
+
+    # ---- PREFILL worker:锁 4 卡 1 worker, TP=4 ----
+    prefill_worker_config:
+      gemm_quant_mode: "bfloat16"
+      moe_quant_mode: "bfloat16"
+      kvcache_quant_mode: "bfloat16"
+      fmha_quant_mode: "bfloat16"
+      comm_quant_mode: "half"
+      num_gpu_per_worker: [4]
+      tp_list: [4]
+      pp_list: [1]
+      dp_list: [1]
+      moe_tp_list: [1, 2, 4]
+      moe_ep_list: [1, 2, 4]
+
+    # ---- DECODE worker:锁 4 卡 1 worker, TP=4 ----
+    decode_worker_config:
+      gemm_quant_mode: "bfloat16"
+      moe_quant_mode: "bfloat16"
+      kvcache_quant_mode: "bfloat16"
+      fmha_quant_mode: "bfloat16"
+      comm_quant_mode: "half"
+      num_gpu_per_worker: [4]
+      tp_list: [4]
+      pp_list: [1]
+      dp_list: [1]
+      moe_tp_list: [1, 2, 4]
+      moe_ep_list: [1, 2, 4]
+
+    # ---- replica:锁死 1P + 1D 的 8-GPU 单 replica ----
+    replica_config:
+      num_gpu_per_replica: [8]
+      max_gpu_per_replica: 8
+      max_prefill_worker: 1
+      max_decode_worker: 1
+
+    # ---- batch 上限 + aic 历史校正 ----
+    advanced_tuning_config:
+      prefill_latency_correction_scale: 1.1
+      decode_latency_correction_scale: 1.08
+      prefill_max_batch_size: 16    # prefill batch 上限,aic 内部扫 1/2/4/8/16
+      decode_max_batch_size: 256    # decode 显存富裕(单点 estimate 显示 bs=128 用 90GB,还有 95GB 余量)
+
+exp_disagg_pd44_short:
+  <<: *common_disagg_locked
+  isl: 2000
+  osl: 800
+  prefix: 500
+
+exp_disagg_pd44_mid:
+  <<: *common_disagg_locked
+  isl: 5000
+  osl: 1200
+  prefix: 3500
+
+exp_disagg_pd44_long:
+  <<: *common_disagg_locked
+  isl: 12000
+  osl: 1500
+  prefix: 10500

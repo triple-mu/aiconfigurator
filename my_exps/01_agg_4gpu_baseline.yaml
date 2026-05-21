@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Apache-2.0
+# ============================================================================
+# GLM-4.5-Air @ GB200, 4-GPU AGG baseline
+# ----------------------------------------------------------------------------
+# 目的:为 "P=4 + D=4 disagg" 提供一个公平的对照基线 —— 单个 4 卡 agg worker.
+# 锁:total_gpus=4, num_gpu_per_worker=4, tp=4 (单 worker)
+# 扫:moe_tp × moe_ep 的 3 种组合,以及 aic 内部 batch 维度
+# 3 个工作负载点(短/中/长 multi-turn SWEBench-agent)分别独立估算
+# ============================================================================
+
+exps:
+  - exp_agg_short
+  - exp_agg_mid
+  - exp_agg_long
+
+# -------- common defaults via YAML anchor --------
+_common_agg: &common_agg
+  mode: "patch"
+  serving_mode: "agg"
+  model_path: "zai-org/GLM-4.5-Air"
+  total_gpus: 4
+  system_name: "gb200"
+  backend_name: "sglang"
+  backend_version: "0.5.10"
+  database_mode: "HYBRID"   # 必须用 HYBRID,GB200 sglang 0.5.10 缺 moe_inter=1408 的真实采集点
+  ttft: 1000.0
+  tpot: 60.0
+  enable_wideep: false
+  config:
+    # MTP 暂关 —— GLM-4.5-Air 有 num_nextn_predict_layers=1,可后续单开一份 exp 测 MTP 加速
+    nextn: 0
+    nextn_accept_rates: [0, 0, 0, 0, 0]
+    worker_config:
+      # bf16 全程,无量化
+      gemm_quant_mode: "bfloat16"
+      moe_quant_mode: "bfloat16"
+      kvcache_quant_mode: "bfloat16"
+      fmha_quant_mode: "bfloat16"
+      comm_quant_mode: "half"
+      # 锁 4 卡 1 worker, TP=4, PP=1, DP=1
+      num_gpu_per_worker: [4]
+      tp_list: [4]
+      pp_list: [1]
+      dp_list: [1]
+      # MoE 并行 3 种(满足 tp×dp = moe_tp×moe_ep = 4)
+      moe_tp_list: [1, 2, 4]
+      moe_ep_list: [1, 2, 4]
+
+exp_agg_short:
+  <<: *common_agg
+  # 短(早期轮):sys prompt + tool desc + 第 1 个问题 ≈ 2000;prefix ~ sys 部分
+  isl: 2000
+  osl: 800
+  prefix: 500
+
+exp_agg_mid:
+  <<: *common_agg
+  # 中(3~4 轮):整个对话历史拼接 ≈ 5000;prefix 是前几轮的总和
+  isl: 5000
+  osl: 1200
+  prefix: 3500
+
+exp_agg_long:
+  <<: *common_agg
+  # 长(后期轮):多轮累积到 12000;绝大部分前缀都进 KV cache
+  isl: 12000
+  osl: 1500
+  prefix: 10500

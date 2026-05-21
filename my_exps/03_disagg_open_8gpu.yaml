@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: Apache-2.0
+# ============================================================================
+# GLM-4.5-Air @ GB200, 8-GPU DISAGG, OPEN 拓扑搜索
+# ----------------------------------------------------------------------------
+# 目的:不锁 P=4+D=4,让 aic 在 8 卡预算下自由搜索最优拓扑
+# 与 02_disagg_pd_4_4_locked.yaml 比较,看 "P=4+D=4" 是不是真的最优,
+# 或者 (例如) "2P(TP2) + 1D(TP4)" 更好
+# 候选拓扑(aic 会自动枚举):
+#   1P(TP4) + 1D(TP4)  = 8 GPU  ← locked 情况
+#   1P(TP2) + 1D(TP2) × 2 replicas = 8 GPU
+#   2P(TP2) + 1D(TP4)  = 8 GPU
+#   1P(TP4) + 2D(TP2)  = 8 GPU
+#   1P(TP8) + ... 失败:8 卡都给 P 就没 D
+# ============================================================================
+
+exps:
+  - exp_disagg_open_short
+  - exp_disagg_open_mid
+  - exp_disagg_open_long
+
+_common_disagg_open: &common_disagg_open
+  mode: "patch"
+  serving_mode: "disagg"
+  model_path: "zai-org/GLM-4.5-Air"
+  total_gpus: 8
+  system_name: "gb200"
+  decode_system_name: "gb200"
+  backend_name: "sglang"
+  backend_version: "0.5.10"
+  database_mode: "HYBRID"
+  ttft: 1000.0
+  tpot: 60.0
+  enable_wideep: false
+  config:
+    nextn: 0
+    nextn_accept_rates: [0, 0, 0, 0, 0]
+
+    # ---- PREFILL:允许 TP=2/4,每 worker 2/4 卡 ----
+    prefill_worker_config:
+      gemm_quant_mode: "bfloat16"
+      moe_quant_mode: "bfloat16"
+      kvcache_quant_mode: "bfloat16"
+      fmha_quant_mode: "bfloat16"
+      comm_quant_mode: "half"
+      num_gpu_per_worker: [2, 4]
+      tp_list: [2, 4]
+      pp_list: [1]
+      dp_list: [1]
+      moe_tp_list: [1, 2, 4]
+      moe_ep_list: [1, 2, 4]
+
+    # ---- DECODE:允许 TP=2/4,每 worker 2/4 卡 ----
+    decode_worker_config:
+      gemm_quant_mode: "bfloat16"
+      moe_quant_mode: "bfloat16"
+      kvcache_quant_mode: "bfloat16"
+      fmha_quant_mode: "bfloat16"
+      comm_quant_mode: "half"
+      num_gpu_per_worker: [2, 4]
+      tp_list: [2, 4]
+      pp_list: [1]
+      dp_list: [1, 2]   # decode 端允许 attn DP=2 (在 TP=2 worker 上)
+      moe_tp_list: [1, 2, 4]
+      moe_ep_list: [1, 2, 4]
+
+    # ---- replica:允许 4-GPU(2 replicas) 或 8-GPU(1 replica) ----
+    replica_config:
+      num_gpu_per_replica: [4, 8]
+      max_gpu_per_replica: 8
+      max_prefill_worker: 2   # 1 replica 内最多 2 个 prefill worker
+      max_decode_worker: 2
+
+    advanced_tuning_config:
+      prefill_latency_correction_scale: 1.1
+      decode_latency_correction_scale: 1.08
+      prefill_max_batch_size: 16
+      decode_max_batch_size: 256
+
+exp_disagg_open_short:
+  <<: *common_disagg_open
+  isl: 2000
+  osl: 800
+  prefix: 500
+
+exp_disagg_open_mid:
+  <<: *common_disagg_open
+  isl: 5000
+  osl: 1200
+  prefix: 3500
+
+exp_disagg_open_long:
+  <<: *common_disagg_open
+  isl: 12000
+  osl: 1500
+  prefix: 10500
