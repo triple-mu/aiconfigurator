@@ -50,17 +50,18 @@ def main() -> int:
     args = parser.parse_args()
 
     workloads = ["short", "mid", "long"]
+    # (results 子目录, 显示名, GPU 预算)—— 预算用于 agg 模式把 per-worker tps 还原成 cluster tps
     configs = [
-        ("agg_baseline",   "01 agg 4-GPU"),
-        ("disagg_pd44",    "02 disagg locked"),
-        ("disagg_open",    "03 disagg open"),
-        ("agg_8gpu_2x",    "04 agg 2x replicas (8-GPU)"),
+        ("agg_baseline",   "01 agg 4-GPU",                 4),
+        ("disagg_pd44",    "02 disagg locked",             8),
+        ("disagg_open",    "03 disagg open",               8),
+        ("agg_8gpu_2x",    "04 agg 2x replicas (8-GPU)",   8),
     ]
 
     table = []
     for wl in workloads:
         row = {"workload": wl}
-        for cfg_dir, cfg_label in configs:
+        for cfg_dir, cfg_label, budget in configs:
             # aic 实际落盘:results/<cfg>/<model_org>/<run_signature>/exp_*_<wl>/best_config_topn.csv
             # 用 recursive ** 兼容不同嵌套深度
             pattern = os.path.join(
@@ -71,6 +72,16 @@ def main() -> int:
                 row[cfg_label] = None
                 continue
             top = _find_top1_from_files(files)
+            if top is not None:
+                # 关键:aic 的 tokens/s 是 per-worker;
+                # agg 模式 cluster = per-worker × (budget / num_gpu_per_worker)
+                # disagg 模式 1 replica 已经 = budget,所以 ratio 应该=1
+                used_gpus = top.get("num_total_gpus") or budget
+                replicas = max(1, int(budget) // max(1, int(used_gpus)))
+                top["__cluster_tokens_per_s__"] = (top.get("tokens/s") or 0) * replicas
+                top["__cluster_gpus__"] = int(used_gpus) * replicas
+                top["__replicas__"] = replicas
+                top["__budget__"] = budget
             if top is None:
                 row[cfg_label] = None
             else:
@@ -78,67 +89,61 @@ def main() -> int:
         table.append(row)
 
     # 打印宽表
-    print("=" * 100)
-    print(f"  {'workload':<8} | {'config':<22} | {'cluster tps':>11} | {'tps/gpu':>9} | {'gpus':>5} | {'TTFT':>7} | {'TPOT':>7}")
-    print("-" * 100)
+    print("=" * 115)
+    print(f"  {'workload':<8} | {'config':<28} | {'cluster tps':>11} | {'tps/gpu':>9} | {'gpus':>6} | {'TTFT':>7} | {'TPOT':>7}")
+    print("  " + "-" * 113)
     for row in table:
         wl = row["workload"]
-        for cfg_dir, cfg_label in configs:
+        for cfg_dir, cfg_label, _budget in configs:
             data = row.get(cfg_label)
             if data is None:
-                print(f"  {wl:<8} | {cfg_label:<22} |  (no data)")
+                print(f"  {wl:<8} | {cfg_label:<28} |  (no data)")
                 continue
-            cluster_tps = data.get("tokens/s", 0) or 0
+            cluster_tps = data.get("__cluster_tokens_per_s__", 0) or 0
             per_gpu = data.get("tokens/s/gpu", 0) or 0
-            total_gpus = data.get("num_total_gpus") or data.get("total_gpus") or "?"
-            ttft = data.get("ttft", data.get("TTFT", "?"))
-            tpot = data.get("tpot", data.get("TPOT", "?"))
+            gpus_str = f"{data.get('__cluster_gpus__', '?')}"
+            if data.get("__replicas__", 1) > 1:
+                gpus_str = f"{data['__cluster_gpus__']} (×{data['__replicas__']})"
+            ttft = data.get("ttft", "?")
+            tpot = data.get("tpot", "?")
             print(
-                f"  {wl:<8} | {cfg_label:<22} | "
+                f"  {wl:<8} | {cfg_label:<28} | "
                 f"{_safe(cluster_tps, ',.1f'):>11} | "
                 f"{_safe(per_gpu, ',.1f'):>9} | "
-                f"{str(total_gpus):>5} | "
+                f"{gpus_str:>6} | "
                 f"{_safe(ttft, '.1f'):>7} | "
                 f"{_safe(tpot, '.2f'):>7}"
             )
-        print("-" * 100)
+        print("  " + "-" * 113)
 
-    # 关键比值
-    print("\n  关键比值:")
-    print("  ─ 用户原始 target: 8-GPU disagg ≥ 2.0× of 4-GPU agg(super-linear,极难)")
-    print("  ─ 真正公平 target: 8-GPU disagg  >  8-GPU agg-2x(才说明 disagg 有价值)")
+    # 关键比值(用 cluster tps,不用 per-worker tps)
+    print("\n  关键比值(均使用 cluster 总吞吐):")
+    print("  ─ 用户原始 target:  8-GPU disagg ≥ 2.0× of 4-GPU agg(super-linear,极难)")
+    print("  ─ 公平 baseline:    8-GPU disagg > 8-GPU agg-2x replicas(才说明 disagg 有真实价值)")
     for row in table:
         wl = row["workload"]
-        agg4 = row.get("01 agg 4-GPU")
-        locked = row.get("02 disagg locked")
-        opened = row.get("03 disagg open")
-        agg8 = row.get("04 agg 2x replicas (8-GPU)")
-        if not agg4:
-            continue
-        agg4_tps = agg4.get("tokens/s", 0) or 0
-        if agg4_tps == 0:
+        def _c(label: str) -> float:
+            d = row.get(label)
+            return float(d.get("__cluster_tokens_per_s__", 0) or 0) if d else 0.0
+        agg4 = _c("01 agg 4-GPU")
+        locked = _c("02 disagg locked")
+        opened = _c("03 disagg open")
+        agg8 = _c("04 agg 2x replicas (8-GPU)")
+        if agg4 == 0:
             continue
         line = f"    {wl:<8}: "
-        if locked:
-            r = (locked.get("tokens/s") or 0) / agg4_tps
-            line += f"locked/agg4={r:.2f}x  "
-        if opened:
-            r = (opened.get("tokens/s") or 0) / agg4_tps
-            line += f"open/agg4={r:.2f}x  "
+        line += f"locked/agg4={locked/agg4:.2f}x  "
+        line += f"open/agg4={opened/agg4:.2f}x  "
         if agg8:
-            agg8_tps = agg8.get("tokens/s", 0) or 0
-            r_8x = agg8_tps / agg4_tps
-            line += f"agg8/agg4={r_8x:.2f}x  "
-            # 更重要的: disagg vs agg8 (公平对照)
-            if opened:
-                r_vs_8 = (opened.get("tokens/s") or 0) / agg8_tps if agg8_tps else 0
-                line += f"|  open/agg8={r_vs_8:.2f}x"
+            line += f"agg8/agg4={agg8/agg4:.2f}x  |  "
+            line += f"open/agg8={opened/agg8:.2f}x  "
+            line += f"locked/agg8={locked/agg8:.2f}x"
         print(line)
 
     # 打印 mid 点的 top-1 详情(agg + disagg locked + disagg open 各打一段)
     mid_row = next((r for r in table if r["workload"] == "mid"), None)
     if mid_row:
-        for cfg_dir, cfg_label in configs:
+        for cfg_dir, cfg_label, _budget in configs:
             data = mid_row.get(cfg_label)
             if not data:
                 continue
