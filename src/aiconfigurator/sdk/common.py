@@ -529,6 +529,7 @@ ARCHITECTURE_TO_MODEL_FAMILY = {
     "GptOssForCausalLM": "MOE",
     "Qwen2MoeForCausalLM": "MOE",
     "Qwen3MoeForCausalLM": "MOE",
+    "Glm4MoeForCausalLM": "MOE",
     "MiniMaxM2ForCausalLM": "MOE",
     "MiMoV2FlashForCausalLM": "HYBRIDMOE",
     "Llama4ForConditionalGeneration": "HYBRIDMOE",

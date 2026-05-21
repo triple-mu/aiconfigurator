@@ -79,6 +79,7 @@ class TestSupportedModels:
             ("zai-org/GLM-5", True),
             ("zai-org/GLM-5-FP8", True),
             ("nvidia/GLM-5-NVFP4", True),
+            ("zai-org/GLM-4.5-Air", True),
             ("Qwen/Qwen3-30B-A3B", True),
             # NemotronH: check hybrid_override_pattern for 'E' (MoE layers)
             ("nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16", True),  # Has 'E' in pattern
@@ -206,6 +207,7 @@ class TestHFModelSupport:
             ("zai-org/GLM-5", "DEEPSEEKV32"),
             ("zai-org/GLM-5-FP8", "DEEPSEEKV32"),
             ("nvidia/GLM-5-NVFP4", "DEEPSEEKV32"),
+            ("zai-org/GLM-4.5-Air", "MOE"),
             ("Qwen/Qwen3-30B-A3B", "MOE"),
             ("nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16", "NEMOTRONH"),
             ("nvidia/nemotron-ultra-rl-050826", "NEMOTRONH"),
