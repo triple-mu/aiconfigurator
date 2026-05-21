@@ -54,6 +54,7 @@ def main() -> int:
         ("agg_baseline",   "01 agg 4-GPU"),
         ("disagg_pd44",    "02 disagg locked"),
         ("disagg_open",    "03 disagg open"),
+        ("agg_8gpu_2x",    "04 agg 2x replicas (8-GPU)"),
     ]
 
     table = []
@@ -103,24 +104,35 @@ def main() -> int:
         print("-" * 100)
 
     # 关键比值
-    print("\n  关键比值(target ≥ 2.0×):")
+    print("\n  关键比值:")
+    print("  ─ 用户原始 target: 8-GPU disagg ≥ 2.0× of 4-GPU agg(super-linear,极难)")
+    print("  ─ 真正公平 target: 8-GPU disagg  >  8-GPU agg-2x(才说明 disagg 有价值)")
     for row in table:
         wl = row["workload"]
-        agg = row.get("01 agg 4-GPU")
+        agg4 = row.get("01 agg 4-GPU")
         locked = row.get("02 disagg locked")
         opened = row.get("03 disagg open")
-        if not agg:
+        agg8 = row.get("04 agg 2x replicas (8-GPU)")
+        if not agg4:
             continue
-        agg_tps = agg.get("tokens/s", 0) or 0
-        if agg_tps == 0:
+        agg4_tps = agg4.get("tokens/s", 0) or 0
+        if agg4_tps == 0:
             continue
         line = f"    {wl:<8}: "
         if locked:
-            r1 = (locked.get("tokens/s") or 0) / agg_tps
-            line += f"locked/agg = {r1:.2f}x  "
+            r = (locked.get("tokens/s") or 0) / agg4_tps
+            line += f"locked/agg4={r:.2f}x  "
         if opened:
-            r2 = (opened.get("tokens/s") or 0) / agg_tps
-            line += f"open/agg   = {r2:.2f}x"
+            r = (opened.get("tokens/s") or 0) / agg4_tps
+            line += f"open/agg4={r:.2f}x  "
+        if agg8:
+            agg8_tps = agg8.get("tokens/s", 0) or 0
+            r_8x = agg8_tps / agg4_tps
+            line += f"agg8/agg4={r_8x:.2f}x  "
+            # 更重要的: disagg vs agg8 (公平对照)
+            if opened:
+                r_vs_8 = (opened.get("tokens/s") or 0) / agg8_tps if agg8_tps else 0
+                line += f"|  open/agg8={r_vs_8:.2f}x"
         print(line)
 
     # 打印 mid 点的 top-1 详情(agg + disagg locked + disagg open 各打一段)
