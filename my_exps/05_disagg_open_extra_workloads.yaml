@@ -1,0 +1,93 @@
+# SPDX-License-Identifier: Apache-2.0
+# ============================================================================
+# GLM-4.5-Air @ GB200, 8-GPU DISAGG (open topology), 3 个偏 disagg-friendly 的工作负载
+# ----------------------------------------------------------------------------
+# 目的:在 short/mid/long 之外探更多 workload 形状,找 disagg 的 sweet spot
+# 拓扑:开放(让 aic 自由选 1P+1D / 2P+1D / 1P+2D / ...)
+#
+# 3 个新 workload:
+#   prefillH: 大代码库 fresh 提交,prefill 重,decode 短(无 prefix 命中)
+#   decodeH:  长 patch 生成,decode 重,prefill 中等
+#   bothH:    双高 + 无 prefix,理论 disagg 最甜蜜点
+# ============================================================================
+
+exps:
+  - exp_disagg_open_prefillH
+  - exp_disagg_open_decodeH
+  - exp_disagg_open_bothH
+
+_common_disagg_open: &common_disagg_open
+  mode: "patch"
+  serving_mode: "disagg"
+  model_path: "zai-org/GLM-4.5-Air"
+  total_gpus: 8
+  system_name: "gb200"
+  decode_system_name: "gb200"
+  backend_name: "sglang"
+  backend_version: "0.5.10"
+  database_mode: "HYBRID"
+  ttft: 2000.0   # 比 01-04 宽松,允许大 ISL 的 TTFT 升到 1.5s
+  tpot: 80.0     # 比 01-04 宽松,允许更大的 batch
+  enable_wideep: false
+  config:
+    nextn: 0
+    nextn_accept_rates: [0, 0, 0, 0, 0]
+
+    prefill_worker_config:
+      gemm_quant_mode: "bfloat16"
+      moe_quant_mode: "bfloat16"
+      kvcache_quant_mode: "bfloat16"
+      fmha_quant_mode: "bfloat16"
+      comm_quant_mode: "half"
+      num_gpu_per_worker: [2, 4]
+      tp_list: [2, 4]
+      pp_list: [1]
+      dp_list: [1]
+      moe_tp_list: [1, 2, 4]
+      moe_ep_list: [1, 2, 4]
+
+    decode_worker_config:
+      gemm_quant_mode: "bfloat16"
+      moe_quant_mode: "bfloat16"
+      kvcache_quant_mode: "bfloat16"
+      fmha_quant_mode: "bfloat16"
+      comm_quant_mode: "half"
+      num_gpu_per_worker: [2, 4]
+      tp_list: [2, 4]
+      pp_list: [1]
+      dp_list: [1, 2]
+      moe_tp_list: [1, 2, 4]
+      moe_ep_list: [1, 2, 4]
+
+    replica_config:
+      num_gpu_per_replica: [4, 8]
+      max_gpu_per_replica: 8
+      max_prefill_worker: 4
+      max_decode_worker: 4
+
+    advanced_tuning_config:
+      prefill_latency_correction_scale: 1.1
+      decode_latency_correction_scale: 1.08
+      prefill_max_batch_size: 64
+      decode_max_batch_size: 2048
+
+exp_disagg_open_prefillH:
+  <<: *common_disagg_open
+  # 大代码库一次性 ingest,fresh 无 prefix
+  isl: 12000
+  osl: 1000
+  prefix: 0
+
+exp_disagg_open_decodeH:
+  <<: *common_disagg_open
+  # 长 patch / 长文本生成
+  isl: 2000
+  osl: 4000
+  prefix: 0
+
+exp_disagg_open_bothH:
+  <<: *common_disagg_open
+  # 双高 + 无 prefix,理论 disagg 最甜蜜点
+  isl: 8000
+  osl: 4000
+  prefix: 0

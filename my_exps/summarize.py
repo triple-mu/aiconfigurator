@@ -44,19 +44,47 @@ def _find_top1_from_files(files: list[str]) -> dict | None:
     return max(rows, key=lambda r: r.get("tokens/s", 0) or 0)
 
 
+def _discover_workloads(results_root: str, configs: list) -> list[str]:
+    """从 results/<config>/**/exp_<config_tag>_<workload>/ 目录名里抽出 workload 后缀。"""
+    seen = set()
+    for cfg_dir, _label, _budget in configs:
+        pat = os.path.join(results_root, cfg_dir, "**", "exp_*")
+        for d in glob.glob(pat, recursive=True):
+            if not os.path.isdir(d):
+                continue
+            name = os.path.basename(d)
+            # exp 名形如 "exp_<tag>_<workload>"; workload 是最后一段
+            parts = name.split("_")
+            if len(parts) >= 3:
+                seen.add(parts[-1])
+    # 排序:已知顺序优先,其他按字母
+    known_order = ["short", "mid", "long", "prefillH", "decodeH", "bothH"]
+    return sorted(seen, key=lambda w: (known_order.index(w) if w in known_order else 999, w))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--results-root", default="results", help="目录名,通常为 results/")
+    parser.add_argument("--workloads", default=None,
+                        help="逗号分隔的 workload 列表;不给时自动发现")
     args = parser.parse_args()
 
-    workloads = ["short", "mid", "long"]
     # (results 子目录, 显示名, GPU 预算)—— 预算用于 agg 模式把 per-worker tps 还原成 cluster tps
     configs = [
         ("agg_baseline",   "01 agg 4-GPU",                 4),
         ("disagg_pd44",    "02 disagg locked",             8),
         ("disagg_open",    "03 disagg open",               8),
         ("agg_8gpu_2x",    "04 agg 2x replicas (8-GPU)",   8),
+        ("disagg_open_extra", "05 disagg open (extra wl)", 8),
+        ("agg2x_extra",       "06 agg 2x (extra wl)",      8),
     ]
+
+    if args.workloads:
+        workloads = [w.strip() for w in args.workloads.split(",") if w.strip()]
+    else:
+        workloads = _discover_workloads(args.results_root, configs)
+    if not workloads:
+        workloads = ["short", "mid", "long"]   # 兜底
 
     table = []
     for wl in workloads:
