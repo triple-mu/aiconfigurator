@@ -26,10 +26,7 @@ def _safe(value, fmt: str = "?") -> str:
         return str(value)
 
 
-def _find_top1(pattern: str) -> dict | None:
-    files = sorted(glob.glob(pattern))
-    if not files:
-        return None
+def _find_top1_from_files(files: list[str]) -> dict | None:
     rows = []
     for f in files:
         try:
@@ -43,7 +40,7 @@ def _find_top1(pattern: str) -> dict | None:
             print(f"  [WARN] failed to read {f}: {e}", file=sys.stderr)
     if not rows:
         return None
-    # 若同一 pattern 命中多个文件(例如 agg + disagg 两个子目录),选 tokens/s 最高的
+    # 若同一 pattern 命中多个文件(多次 run),选 tokens/s 最高的(最新一次大概率)
     return max(rows, key=lambda r: r.get("tokens/s", 0) or 0)
 
 
@@ -63,11 +60,16 @@ def main() -> int:
     for wl in workloads:
         row = {"workload": wl}
         for cfg_dir, cfg_label in configs:
-            # 兼容 agg / disagg 两种子目录命名
+            # aic 实际落盘:results/<cfg>/<model_org>/<run_signature>/exp_*_<wl>/best_config_topn.csv
+            # 用 recursive ** 兼容不同嵌套深度
             pattern = os.path.join(
-                args.results_root, cfg_dir, f"exp_*_{wl}", "*", "best_config_topn.csv"
+                args.results_root, cfg_dir, "**", f"exp_*_{wl}", "best_config_topn.csv"
             )
-            top = _find_top1(pattern)
+            files = sorted(glob.glob(pattern, recursive=True))
+            if not files:
+                row[cfg_label] = None
+                continue
+            top = _find_top1_from_files(files)
             if top is None:
                 row[cfg_label] = None
             else:
